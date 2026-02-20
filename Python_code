@@ -1,0 +1,85 @@
+import cv2
+import time
+import numpy as np
+import onnxruntime as ort
+
+# Paths
+video_path = "videos/test.mp4"
+model_path = "models/yolov5n.onnx"
+
+# Load model
+session = ort.InferenceSession(model_path)
+
+input_name = session.get_inputs()[0].name
+
+# Open video
+cap = cv2.VideoCapture(video_path)
+
+prev_time = time.time()
+
+# Preprocess function
+def preprocess(frame):
+    img = cv2.resize(frame, (640, 640))
+    img = img[:, :, ::-1]  # BGR -> RGB
+    img = img.astype(np.float32) / 255.0
+    img = np.transpose(img, (2, 0, 1))
+    img = np.expand_dims(img, axis=0)
+    return img
+
+# Draw boxes
+def draw_boxes(frame, outputs, conf_thresh=0.4):
+
+    preds = outputs[0][0]  # shape (N, 85)
+
+    h, w, _ = frame.shape
+
+    for det in preds:
+        conf = det[4]
+
+        if conf < conf_thresh:
+            continue
+
+        x, y, bw, bh = det[0:4]
+
+        # convert to pixel coords
+        x1 = int((x - bw/2) * w / 640)
+        y1 = int((y - bh/2) * h / 640)
+        x2 = int((x + bw/2) * w / 640)
+        y2 = int((y + bh/2) * h / 640)
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0,255,0), 2)
+
+# Main loop
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    inp = preprocess(frame)
+
+    outputs = session.run(None, {input_name: inp})
+
+    draw_boxes(frame, outputs)
+
+    # FPS calculation
+    current_time = time.time()
+    fps = 1 / (current_time - prev_time)
+    prev_time = current_time
+
+    cv2.putText(frame, f"FPS: {int(fps)}",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1, (0,255,0), 2)
+
+    cv2.imshow("YOLOv5 Detection", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+
+cap.release()
+cv2.destroyAllWindows()
+
+
+
+
